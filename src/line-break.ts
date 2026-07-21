@@ -34,7 +34,12 @@ type InternalLineVisitor = (
 ) => void
 
 function consumesAtLineStart(kind: SegmentBreakKind): boolean {
-  return kind === 'space' || kind === 'zero-width-break' || kind === 'soft-hyphen'
+  // ZWSP is not CSS-collapsible whitespace: it is zero-width content that
+  // survives on the line and offers a break opportunity after it. When the
+  // next word overflows, the browser breaks after the ZWSP, producing a line
+  // that holds only the ZWSP. Consuming it at line start would under-count
+  // that line versus real rendering.
+  return kind === 'space' || kind === 'soft-hyphen'
 }
 
 function breaksAfter(kind: SegmentBreakKind): boolean {

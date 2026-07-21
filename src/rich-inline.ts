@@ -232,6 +232,12 @@ function stepRichInlineLine(
   let lineWidth = 0
   let remainingWidth = safeWidth
   let itemIndex = cursor.itemIndex
+  // Zero-width fragments (e.g. a leading ZWSP alone on a line) do not add to
+  // lineWidth but still consume the cursor and form a real line. Track via a
+  // consumed flag rather than lineWidth === 0, otherwise the zero-width line
+  // is dropped and the caller terminates layout early because the cursor
+  // never advanced.
+  let consumedAnyFragment = false
 
   lineLoop:
   while (itemIndex < flow.items.length) {
@@ -262,6 +268,7 @@ function stepRichInlineLine(
       const totalWidth = gapBefore + occupiedWidth
       if (lineWidth > 0 && totalWidth > remainingWidth) break lineLoop
 
+      consumedAnyFragment = true
       collectFragment?.(
         item,
         gapBefore,
@@ -286,6 +293,7 @@ function stepRichInlineLine(
     if (atItemStart) {
       const totalWidth = reservedWidth + item.naturalWidth
       if (totalWidth <= remainingWidth) {
+        consumedAnyFragment = true
         collectFragment?.(
           item,
           gapBefore,
@@ -365,6 +373,7 @@ function stepRichInlineLine(
       }
     }
 
+    consumedAnyFragment = true
     collectFragment?.(
       item,
       gapBefore,
@@ -393,7 +402,7 @@ function stepRichInlineLine(
     break
   }
 
-  if (lineWidth === 0) return null
+  if (!consumedAnyFragment) return null
 
   cursor.itemIndex = itemIndex
   return lineWidth
