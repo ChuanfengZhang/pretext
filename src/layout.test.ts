@@ -532,6 +532,34 @@ describe('prepare invariants', () => {
     expect(prepareWithSegments('-1/12', FONT).segments).toEqual(['-1/12'])
   })
 
+  test('does not prefer a leading numeric sign over a later emergency break', () => {
+    const text = '-0.475'
+    const prepared = prepareWithSegments(text, FONT)
+    const width = measureWidth('-0.47', FONT) + 0.1
+
+    expect(prepared.segments).toEqual([text])
+    expect(prepared.breakablePreferredBreaks).toEqual([null])
+
+    const batched = layoutWithLines(prepared, width, LINE_HEIGHT)
+    expect(batched.lines.map(line => line.text)).toEqual(['-0.47', '5'])
+    expect(collectStreamedLines(prepared, width)).toEqual(batched.lines)
+    expect(layout(prepared, width, LINE_HEIGHT).lineCount).toBe(2)
+    expect(measureLineStats(prepared, width).lineCount).toBe(2)
+  })
+
+  test('does not prefer a numeric sign after a comparison symbol', () => {
+    const text = '≥-100nA'
+    const prepared = prepareWithSegments(text, FONT)
+    const width = measureWidth('≥-100n', FONT) + 0.1
+    const lines = layoutWithLines(prepared, width, LINE_HEIGHT).lines.map(line => line.text)
+
+    expect(prepared.segments).toEqual([text])
+    expect(prepared.breakablePreferredBreaks).toEqual([null])
+    expect(lines).toHaveLength(2)
+    expect(lines.join('')).toBe(text)
+    expect(lines[0]).not.toBe('≥-')
+  })
+
   test('keeps URL-like runs together as one breakable segment', () => {
     const prepared = prepareWithSegments('see https://example.com/reports/q3?lang=ar&mode=full now', FONT)
     expect(prepared.segments).toEqual([
@@ -984,6 +1012,34 @@ describe('rich-inline invariants', () => {
       lineCount,
       maxLineWidth: Math.max(...widths),
     })
+  })
+
+  test('rich inline keeps a leading numeric sign with the emergency fragment', () => {
+    const prepared = prepareRichInline([{ text: '-0.475', font: FONT }])
+    const width = measureWidth('-0.47', FONT) + 0.1
+    const lines: string[] = []
+
+    walkRichInlineLineRanges(prepared, width, range => {
+      const line = materializeRichInlineLineRange(prepared, range)
+      lines.push(line.fragments.map(fragment => fragment.text).join(''))
+    })
+
+    expect(lines).toEqual(['-0.47', '5'])
+  })
+
+  test('rich inline keeps a numeric sign after a comparison symbol with the number', () => {
+    const prepared = prepareRichInline([{ text: '≥-100nA', font: FONT }])
+    const width = measureWidth('≥-100n', FONT) + 0.1
+    const lines: string[] = []
+
+    walkRichInlineLineRanges(prepared, width, range => {
+      const line = materializeRichInlineLineRange(prepared, range)
+      lines.push(line.fragments.map(fragment => fragment.text).join(''))
+    })
+
+    expect(lines).toHaveLength(2)
+    expect(lines.join('')).toBe('≥-100nA')
+    expect(lines[0]).not.toBe('≥-')
   })
 })
 

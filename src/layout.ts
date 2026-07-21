@@ -369,14 +369,24 @@ function isPreferredBreakGrapheme(grapheme: string): boolean {
   )
 }
 
+function isNumericSignAt(graphemes: string[], index: number): boolean {
+  if (graphemes[index] !== '-' || !/^\p{Nd}$/u.test(graphemes[index + 1] ?? '')) {
+    return false
+  }
+
+  const previous = graphemes[index - 1]
+  return previous === undefined || !/[\p{L}\p{N}]/u.test(previous)
+}
+
 function getBreakablePreferredBreaks(text: string): number[] | null {
   if (!/[-\u058A\u2010\u2012\u2013\u2014]/u.test(text)) return null
 
   const breaks: number[] = []
-  let graphemeIndex = 0
-  for (const gs of getSharedGraphemeSegmenter().segment(text)) {
-    graphemeIndex++
-    if (isPreferredBreakGrapheme(gs.segment)) breaks.push(graphemeIndex)
+  const graphemes = Array.from(getSharedGraphemeSegmenter().segment(text), ({ segment }) => segment)
+  for (let index = 0; index < graphemes.length; index++) {
+    if (isPreferredBreakGrapheme(graphemes[index]!) && !isNumericSignAt(graphemes, index)) {
+      breaks.push(index + 1)
+    }
   }
 
   return breaks.length === 0 ? null : breaks
