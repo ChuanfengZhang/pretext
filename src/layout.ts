@@ -203,8 +203,13 @@ function createEmptyPrepared(includeSegments: boolean): InternalPreparedText | P
 }
 
 type MeasuredTextUnit = {
+  allowOverflowBreaks: boolean
   text: string
   start: number
+}
+
+function isDecimalDigitGrapheme(grapheme: string): boolean {
+  return /^\p{Nd}$/u.test(grapheme)
 }
 
 function buildBaseCjkUnits(
@@ -216,17 +221,24 @@ function buildBaseCjkUnits(
   let unitStart = 0
   let unitContainsCJK = false
   let unitEndsWithClosingQuote = false
+  let unitEndsWithAsciiHyphen = false
+  let unitHasCjkNumericSuffix = false
+  let unitAllowsOverflowBreaks = false
   let unitIsSingleKinsokuEnd = false
 
   function pushUnit(): void {
     if (unitParts.length === 0) return
     units.push({
+      allowOverflowBreaks: unitAllowsOverflowBreaks,
       text: unitParts.length === 1 ? unitParts[0]! : unitParts.join(''),
       start: unitStart,
     })
     unitParts = []
     unitContainsCJK = false
     unitEndsWithClosingQuote = false
+    unitEndsWithAsciiHyphen = false
+    unitHasCjkNumericSuffix = false
+    unitAllowsOverflowBreaks = false
     unitIsSingleKinsokuEnd = false
   }
 
@@ -235,11 +247,16 @@ function buildBaseCjkUnits(
     unitStart = start
     unitContainsCJK = graphemeContainsCJK
     unitEndsWithClosingQuote = endsWithClosingQuote(grapheme)
+    unitEndsWithAsciiHyphen = grapheme === '-'
+    unitHasCjkNumericSuffix = false
+    unitAllowsOverflowBreaks = false
     unitIsSingleKinsokuEnd = kinsokuEnd.has(grapheme)
   }
 
   function appendToUnit(grapheme: string, graphemeContainsCJK: boolean): void {
     unitParts.push(grapheme)
+    unitAllowsOverflowBreaks =
+      unitAllowsOverflowBreaks || (grapheme === '-' && unitContainsCJK)
     unitContainsCJK = unitContainsCJK || graphemeContainsCJK
     const graphemeEndsWithClosingQuote = endsWithClosingQuote(grapheme)
     if (grapheme.length === 1 && leftStickyPunctuation.has(grapheme)) {
@@ -247,6 +264,7 @@ function buildBaseCjkUnits(
     } else {
       unitEndsWithClosingQuote = graphemeEndsWithClosingQuote
     }
+    unitEndsWithAsciiHyphen = grapheme === '-'
     unitIsSingleKinsokuEnd = false
   }
 
@@ -259,15 +277,23 @@ function buildBaseCjkUnits(
       continue
     }
 
+    const startsCjkNumericSuffix =
+      unitContainsCJK &&
+      unitEndsWithAsciiHyphen &&
+      isDecimalDigitGrapheme(grapheme)
+
     if (
       unitIsSingleKinsokuEnd ||
       kinsokuStart.has(grapheme) ||
       leftStickyPunctuation.has(grapheme) ||
+      startsCjkNumericSuffix ||
+      (unitHasCjkNumericSuffix && !graphemeContainsCJK) ||
       (engineProfile.carryCJKAfterClosingQuote &&
         graphemeContainsCJK &&
         unitEndsWithClosingQuote)
     ) {
       appendToUnit(grapheme, graphemeContainsCJK)
+      unitHasCjkNumericSuffix = unitHasCjkNumericSuffix || startsCjkNumericSuffix
       continue
     }
 
@@ -298,8 +324,13 @@ function mergeKeepAllTextUnits(
   function pushMergedUnit(start: number, end: number): void {
     const sourceStart = units[start]!.start
     const sourceEnd = end < units.length ? units[end]!.start : segText.length
+    let allowOverflowBreaks = false
+    for (let i = start; i < end; i++) {
+      allowOverflowBreaks = allowOverflowBreaks || units[i]!.allowOverflowBreaks
+    }
 
     merged.push({
+      allowOverflowBreaks,
       text: segText.slice(sourceStart, sourceEnd),
       start: sourceStart,
     })
@@ -369,14 +400,29 @@ function isPreferredBreakGrapheme(grapheme: string): boolean {
   )
 }
 
+function isCjkNumericSignAt(graphemes: string[], index: number): boolean {
+  return (
+    graphemes[index] === '-' &&
+    isCJK(graphemes[index - 1] ?? '') &&
+    isDecimalDigitGrapheme(graphemes[index + 1] ?? '')
+  )
+}
+
 function getBreakablePreferredBreaks(text: string): number[] | null {
   if (!/[-\u058A\u2010\u2012\u2013\u2014]/u.test(text)) return null
 
   const breaks: number[] = []
-  let graphemeIndex = 0
-  for (const gs of getSharedGraphemeSegmenter().segment(text)) {
-    graphemeIndex++
-    if (isPreferredBreakGrapheme(gs.segment)) breaks.push(graphemeIndex)
+  const graphemes = Array.from(
+    getSharedGraphemeSegmenter().segment(text),
+    ({ segment }) => segment,
+  )
+  for (let index = 0; index < graphemes.length; index++) {
+    if (
+      isPreferredBreakGrapheme(graphemes[index]!) &&
+      !isCjkNumericSignAt(graphemes, index)
+    ) {
+      breaks.push(index + 1)
+    }
   }
 
   return breaks.length === 0 ? null : breaks
@@ -586,7 +632,7 @@ function measureAnalysis(
           'text',
           segStart + unit.start,
           segWordLike,
-          wordBreak === 'keep-all' || !unitMetrics.containsCJK,
+          wordBreak === 'keep-all' || unit.allowOverflowBreaks || !unitMetrics.containsCJK,
         )
       }
       continue

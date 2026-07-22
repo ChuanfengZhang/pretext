@@ -180,6 +180,7 @@ export function canContinueKeepAllTextRun(previousText: string, breakAfterPunctu
 }
 
 export const kinsokuStart = new Set([
+  '-',
   '\uFF0C',
   '\uFF0E',
   '\uFF01',
@@ -338,6 +339,12 @@ function getLastCodePoint(text: string): string | null {
   if (text.length === 0) return null
   const start = previousCodePointStart(text, text.length)
   return text.slice(start)
+}
+
+function hasCjkBeforeAsciiHyphen(text: string, end: number): boolean {
+  if (end < 2 || text.charCodeAt(end - 1) !== 0x2D) return false
+  const previousStart = previousCodePointStart(text, end - 1)
+  return isCJK(text.slice(previousStart, end - 1))
 }
 
 function getFirstSignificantCodePoint(text: string): string | null {
@@ -993,6 +1000,7 @@ function buildMergedSegmentation(
   let tailContainsCJK = false
   let tailContainsArabicScript = false
   let tailEndsWithClosingQuote = false
+  let tailEndsWithCjkAsciiHyphen = false
   let tailEndsWithMyanmarMedialGlue = false
   let tailHasArabicNoSpacePunctuation = false
 
@@ -1018,6 +1026,14 @@ function buildMergedSegmentation(
         pieceContainsCJK &&
         tailContainsCJK &&
         tailEndsWithClosingQuote
+      ) {
+        appendToTail = true
+      } else if (
+        isText &&
+        hasTail &&
+        tailKind === 'text' &&
+        tailEndsWithCjkAsciiHyphen &&
+        startsWithDecimalDigit(piece.text)
       ) {
         appendToTail = true
       } else if (
@@ -1073,6 +1089,7 @@ function buildMergedSegmentation(
         tailContainsCJK = tailContainsCJK || pieceContainsCJK
         tailContainsArabicScript = tailContainsArabicScript || pieceContainsArabicScript
         tailEndsWithClosingQuote = pieceEndsWithClosingQuote
+        tailEndsWithCjkAsciiHyphen = hasCjkBeforeAsciiHyphen(normalized, tailEnd)
         tailEndsWithMyanmarMedialGlue = pieceEndsWithMyanmarMedialGlue
         tailHasArabicNoSpacePunctuation = hasArabicNoSpacePunctuation(
           tailContainsArabicScript,
@@ -1096,6 +1113,7 @@ function buildMergedSegmentation(
         tailContainsCJK = pieceContainsCJK
         tailContainsArabicScript = pieceContainsArabicScript
         tailEndsWithClosingQuote = pieceEndsWithClosingQuote
+        tailEndsWithCjkAsciiHyphen = hasCjkBeforeAsciiHyphen(normalized, tailEnd)
         tailEndsWithMyanmarMedialGlue = pieceEndsWithMyanmarMedialGlue
         tailHasArabicNoSpacePunctuation = hasArabicNoSpacePunctuation(
           pieceContainsArabicScript,

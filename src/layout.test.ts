@@ -563,6 +563,59 @@ describe('prepare invariants', () => {
     expect(layoutWithLines(unicodeDash, unicodeWidth, LINE_HEIGHT).lines[0]?.text).toBe('https://alpha\u2010')
   })
 
+  test('keeps an ascii hyphen off the start of a wrapped CJK line', () => {
+    const text = '(试验前-试验后)/试验前'
+    const prepared = prepareWithSegments(text, FONT, { whiteSpace: 'pre-wrap' })
+    const width = measureWidth('前-试验', FONT) + 0.1
+    const expectedLines = ['(试验', '前-试验', '后)/试', '验前']
+    const batched = layoutWithLines(prepared, width, LINE_HEIGHT)
+
+    expect(prepared.segments).toContain('前-')
+    expect(batched.lines.map(line => line.text)).toEqual(expectedLines)
+    expect(collectStreamedLines(prepared, width)).toEqual(batched.lines)
+    expect(layout(prepared, width, LINE_HEIGHT).lineCount).toBe(expectedLines.length)
+    expect(measureLineStats(prepared, width).lineCount).toBe(expectedLines.length)
+  })
+
+  test('keeps a CJK-adjacent numeric minus attached on both sides', () => {
+    const text = '温度-5度'
+    const prepared = prepareWithSegments(text, FONT)
+    const width = measureWidth('温度-', FONT) + 0.1
+
+    expect(prepared.segments).toEqual(['温', '度-5', '度'])
+    expect(prepared.breakablePreferredBreaks).toEqual([null, null, null])
+    expect(layoutWithLines(prepared, width, LINE_HEIGHT).lines.map(line => line.text)).toEqual([
+      '温',
+      '度-5',
+      '度',
+    ])
+    expect(prepareWithSegments(text, FONT, { wordBreak: 'keep-all' }).segments).toEqual([text])
+    expect(prepareWithSegments('気温-10度です', FONT, { wordBreak: 'keep-all' }).segments).toEqual([
+      '気温-10度です',
+    ])
+
+    const latinNumeric = prepareWithSegments('日本語foo-5', FONT)
+    expect(latinNumeric.segments).toEqual(['日', '本', '語', 'foo-', '5'])
+    expect(latinNumeric.breakablePreferredBreaks).toEqual([null, null, null, [4], null])
+  })
+
+  test('emergency-breaks an overlong CJK numeric-minus unit at grapheme boundaries', () => {
+    const text = '温度-100nA'
+    const prepared = prepareWithSegments(text, FONT)
+    const unitFitAdvances = prepared.breakableFitAdvances[1]
+    expect(unitFitAdvances).not.toBeNull()
+    const width = unitFitAdvances!.slice(0, 5).reduce((sum, advance) => sum + advance, 0) + 0.1
+    const expectedLines = ['温', '度-100', 'nA']
+    const batched = layoutWithLines(prepared, width, LINE_HEIGHT)
+
+    expect(prepared.segments).toEqual(['温', '度-100nA'])
+    expect(prepared.breakablePreferredBreaks).toEqual([null, null])
+    expect(batched.lines.map(line => line.text)).toEqual(expectedLines)
+    expect(collectStreamedLines(prepared, width)).toEqual(batched.lines)
+    expect(layout(prepared, width, LINE_HEIGHT).lineCount).toBe(expectedLines.length)
+    expect(measureLineStats(prepared, width).lineCount).toBe(expectedLines.length)
+  })
+
   test('does not prefer hyphen-like boundaries in keep-all runs', () => {
     const text = 'foo-bar日本語'
     const prepared = prepareWithSegments(text, FONT, { wordBreak: 'keep-all' })
