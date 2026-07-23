@@ -563,6 +563,16 @@ describe('prepare invariants', () => {
     expect(layoutWithLines(unicodeDash, unicodeWidth, LINE_HEIGHT).lines[0]?.text).toBe('https://alpha\u2010')
   })
 
+  test('allows an ascii hyphen at a wrapped line start outside CJK', () => {
+    const prepared = prepareWithSegments('foo -bar', FONT)
+    const width = measureWidth('-bar', FONT) + 0.1
+
+    expect(layoutWithLines(prepared, width, LINE_HEIGHT).lines.map(line => line.text)).toEqual([
+      'foo ',
+      '-bar',
+    ])
+  })
+
   test('keeps an ascii hyphen off the start of a wrapped CJK line', () => {
     const text = '(试验前-试验后)/试验前'
     const prepared = prepareWithSegments(text, FONT, { whiteSpace: 'pre-wrap' })
